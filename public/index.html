@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekend Activity Finder</title>
+<style>
+  :root { --bg: #eef9f1; --ink: #13301f; --muted: #587262; --line: #cfe9d8; --card: #fff; --green: #2f9e44; --sun: #fab005; --sky: #339af0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 26px 16px 56px; }
+  h1 { font: 900 36px/1.05 system-ui, sans-serif; margin: 0; } h1 span { color: var(--green); } .sub { color: var(--muted); margin: 6px 0 8px; }
+  #status { font-size: 13px; color: var(--muted); margin: 0 0 12px; } #status.ok { color: var(--green); } #status.err { color: #c92a2a; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; margin-bottom: 16px; } .panel h2 { font-size: 18px; margin: 0 0 8px; }
+  input, select { font: inherit; padding: 10px 12px; border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); min-width: 0; } #mood { flex: 1 1 260px; font-size: 18px; }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid #8ce99a; outline-offset: 2px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 0; } .chips button { background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 99px; padding: 4px 12px; font-size: 14px; font-weight: 600; }
+  button { font: inherit; font-weight: 700; padding: 10px 18px; border: 0; border-radius: 12px; background: var(--green); color: #fff; cursor: pointer; }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: 5px 11px; font-size: 13px; } button.busy { opacity: .55; cursor: progress; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; } .row label.chk { display: flex; gap: 6px; align-items: center; font-weight: 600; } .row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--green); }
+  .note { color: var(--muted); font-size: 14px; min-height: 20px; margin: 8px 0 0; }
+  .acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .act { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px; } .act.top { border: 2px solid var(--green); }
+  .act .e { font-size: 34px; line-height: 1; } .act b { font-size: 18px; } .act p { margin: 0; color: var(--muted); flex: 1; font-size: 15px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; } .tags span { font-size: 12px; font-weight: 700; background: #ebfbee; color: #2b8a3e; border-radius: 99px; padding: 2px 9px; }
+  .add { display: flex; gap: 6px; } .days { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 560px) { .days { grid-template-columns: 1fr; } }
+  .day { background: #f8fdf9; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; min-height: 90px; } .day h3 { margin: 0 0 6px; font-size: 16px; } .item { display: flex; gap: 6px; align-items: center; padding: 3px 0; } .item span { flex: 1; }
+  #src { color: var(--muted); font-size: 14px; } .empty { color: var(--muted); font-size: 14px; } .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Weekend <span>Activity Finder</span> &#127774;</h1>
+  <p class="sub">Tell me what you feel like doing. Find activities that fit your mood, budget and the weather, then plan Saturday and Sunday.</p>
+  <p id="status">Checking activity matching...</p>
+  <section class="panel">
+    <div class="row" style="margin-top:0"><input id="mood" placeholder="I feel like something..." maxlength="300" autocomplete="off" aria-label="What do you feel like doing?"><button id="go">Find ideas</button></div>
+    <div class="chips" id="chips"></div>
+    <div class="row"><label for="who">With</label><select id="who"><option value="any">Anyone</option><option value="solo">Just me</option><option value="friends">Friends</option><option value="family">Family</option><option value="date">A date</option></select>
+      <label class="chk"><input type="checkbox" id="free"> Free only</label><label class="chk"><input type="checkbox" id="rainy"> It's raining ☔</label></div>
+    <p class="note" id="note"></p>
+  </section>
+  <section id="results" class="hidden"><p id="src" aria-live="polite"></p><div class="acts" id="list"></div></section>
+  <section class="panel" style="margin-top:16px"><h2>🗓 My weekend plan</h2><div class="days"><div class="day"><h3>Saturday</h3><div id="sat"></div></div><div class="day"><h3>Sunday</h3><div id="sun"></div></div></div>
+    <div class="row"><button class="ghost" id="copy">Copy plan</button><button class="ghost" id="clearPlan">Clear plan</button></div></section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const PICKS = ["relaxing and cozy", "active and outdoors", "creative", "cheap day out", "something new", "rainy day fun", "social with friends", "calm and quiet"];
+let acts = [], busy = false, pending = false, ai = { ready: false, message: "Loading...", percent: null, error: null };
+let plan = { sat: [], sun: [] }; try { plan = JSON.parse(localStorage.getItem("weekendPlan") || "null") || plan; } catch {}
+const persist = () => { try { localStorage.setItem("weekendPlan", JSON.stringify(plan)); } catch {} };
+PICKS.forEach((p) => { const b = document.createElement("button"); b.textContent = p; b.addEventListener("click", () => { $("mood").value = p; if (/rain/.test(p)) $("rainy").checked = true; if (/cheap/.test(p)) $("free").checked = true; find(); }); $("chips").append(b); });
+["who", "free", "rainy"].forEach((id) => $(id).addEventListener("change", () => { if ($("mood").value.trim()) find(); }));
+
+function card(i, top) {
+  const a = acts[i], d = document.createElement("div"); d.className = "act" + (top ? " top" : ""); const e = document.createElement("span"); e.className = "e"; e.textContent = a.emoji; const b = document.createElement("b"); b.textContent = a.name; const p = document.createElement("p"); p.textContent = a.about;
+  const t = document.createElement("div"); t.className = "tags"; [a.cost === "free" ? "Free" : a.cost, a.where === "both" ? "Indoor or outdoor" : a.where === "indoor" ? "Indoor" : "Outdoor"].forEach((x) => { const s = document.createElement("span"); s.textContent = x; t.append(s); });
+  const add = document.createElement("div"); add.className = "add"; [["sat", "+ Saturday"], ["sun", "+ Sunday"]].forEach(([k, l]) => { const btn = document.createElement("button"); btn.className = "ghost"; btn.textContent = l; btn.addEventListener("click", () => { if (!plan[k].includes(a.name)) plan[k].push(a.name); persist(); drawPlan(); btn.textContent = "\u2713 Added"; }); add.append(btn); });
+  d.append(e, b, p, t, add); return d;
+}
+function show(idx, label) { $("results").classList.remove("hidden"); $("src").textContent = label; const box = $("list"); box.innerHTML = ""; idx.forEach((i, k) => box.append(card(i, k === 0))); if (!idx.length) box.innerHTML = '<p class="empty">Nothing fits all those filters. Try unticking one.</p>'; }
+function filters() { return { freeOnly: $("free").checked, rainy: $("rainy").checked, who: $("who").value }; }
+function keywordMatch(t) {
+  const ws = t.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && !["something", "feel", "like", "want", "with", "really"].includes(w)), f = filters();
+  return acts.map((a, i) => ({ i, a, s: ws.filter((w) => (a.name + " " + a.about).toLowerCase().split(/[^a-z]+/).some((x) => x === w || (w.length > 4 && x.startsWith(w.slice(0, 5))))).length }))
+    .filter((x) => x.s > 0 && (!f.freeOnly || x.a.cost === "free") && (!f.rainy || x.a.where !== "outdoor") && (f.who === "any" || x.a.who.includes(f.who))).sort((a, b) => b.s - a.s).slice(0, 6).map((x) => x.i);
+}
+async function find() {
+  if (busy) { pending = true; return; } const mood = $("mood").value.trim(); if (!mood) { $("note").textContent = "Tell me what you feel like, or tap an example."; return $("mood").focus(); }
+  if (!acts.length) { $("note").textContent = "The activity list hasn't loaded. Is the server running?"; return; }
+  busy = true; $("go").classList.add("busy"); $("note").textContent = ai.ready ? "Planning some fun..." : "";
+  try { if (!ai.ready) throw new Error("not ready");
+    const res = await fetch("/api/match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mood, ...filters() }) }); const r = await res.json(); if (!res.ok) throw new Error(r.error);
+    show(r, "Ideas for \u201c" + mood + "\u201d" + ($("rainy").checked ? " (indoors, it's raining)" : "") + ($("free").checked ? " (free)" : "")); $("note").textContent = "";
+  } catch { show(keywordMatch(mood), "Matches by keywords"); $("note").textContent = ai.ready ? "" : "The AI is still loading, so this matched keywords. Try again soon for smarter matches."; }
+  busy = false; $("go").classList.remove("busy"); if (pending) { pending = false; find(); }
+}
+$("go").addEventListener("click", find); $("mood").addEventListener("keydown", (e) => { if (e.key === "Enter") find(); });
+function drawPlan() { ["sat", "sun"].forEach((k) => { const box = $(k); box.innerHTML = plan[k].length ? "" : '<p class="empty">Nothing planned yet.</p>';
+  plan[k].forEach((n) => { const a = acts.find((x) => x.name === n); const r = document.createElement("div"); r.className = "item"; const s = document.createElement("span"); s.textContent = (a ? a.emoji + " " : "") + n;
+    const x = document.createElement("button"); x.className = "ghost"; x.textContent = "\u00d7"; x.setAttribute("aria-label", "Remove " + n); x.addEventListener("click", () => { plan[k] = plan[k].filter((v) => v !== n); persist(); drawPlan(); }); r.append(s, x); box.append(r); }); }); }
+$("copy").addEventListener("click", async () => { const t = "Saturday: " + (plan.sat.join(", ") || "free day") + "\nSunday: " + (plan.sun.join(", ") || "free day"); try { await navigator.clipboard.writeText(t); $("copy").textContent = "Copied!"; } catch { $("copy").textContent = "Press Ctrl+C"; } setTimeout(() => ($("copy").textContent = "Copy plan"), 1200); });
+$("clearPlan").addEventListener("click", () => { plan = { sat: [], sun: [] }; persist(); drawPlan(); });
+
+async function checkStatus() {
+  try { ai = await (await fetch("/api/status")).json();
+    if (ai.error) return setStatus("Matching error: " + ai.error + ". Keyword matching still works.", "err");
+    if (ai.ready) return setStatus("Activity matching ready. It runs on your device.", "ok");
+    setStatus(ai.message + (ai.percent != null ? " " + ai.percent + "%" : "") + " Keyword matching works meanwhile.");
+  } catch { ai = { ready: false, error: "the server can't be reached" }; setStatus("Can't reach the server. Open http://localhost:3095 and make sure npm start is running.", "err"); return; }
+  setTimeout(checkStatus, 1500);
+}
+function setStatus(t, c = "") { $("status").textContent = t; $("status").className = c; }
+fetch("/api/activities").then((r) => r.json()).then((a) => { acts = a; drawPlan(); }).catch(() => ($("note").textContent = "Couldn't load the activities. Is the server running?"));
+drawPlan(); checkStatus();
+</script>
+</body>
+</html>
